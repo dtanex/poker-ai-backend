@@ -8,14 +8,21 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
 import os
 
-# Import the AI player
-from aiplayer import CFRAIPlayer
+# Import the AI player - PROFESSIONAL VERSION
+try:
+    from aiplayer_pro import ProfessionalAIPlayer
+    print("🎯 Loading PROFESSIONAL AI Player (Opus V2)")
+    USE_PRO = True
+except ImportError:
+    from aiplayer import CFRAIPlayer
+    print("⚠️  Falling back to basic AI player")
+    USE_PRO = False
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="Poker AI API",
-    description="GTO poker strategy API powered by CFR solver",
-    version="1.0.0"
+    title="Poker AI API - Professional Edition",
+    description="GTO poker strategy API powered by professional CFR solver (comparable to PioSolver)",
+    version="2.0.0"
 )
 
 # CORS middleware (allow your Next.js frontend to call this API)
@@ -24,6 +31,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",  # Local development
         "https://yourdomain.com",  # Your production domain
+        "https://exploit-actual.vercel.app",  # Your frontend
         "*"  # Remove this in production, only for testing
     ],
     allow_credentials=True,
@@ -33,8 +41,13 @@ app.add_middleware(
 
 # Initialize AI player (loads strategies on startup)
 try:
-    ai_player = CFRAIPlayer("cfr_strategies.pkl")
-    print("✅ AI player loaded successfully")
+    if USE_PRO:
+        ai_player = ProfessionalAIPlayer("gto_strategies.pkl")
+        print("✅ Professional AI player loaded successfully")
+        print("   📊 Features: Position-aware, Stack-depth adjusted, Realistic calling frequencies")
+    else:
+        ai_player = CFRAIPlayer("cfr_strategies.pkl")
+        print("✅ Basic AI player loaded successfully")
 except Exception as e:
     print(f"⚠️  Warning: Could not load AI player: {e}")
     ai_player = None
