@@ -90,8 +90,8 @@ class HealthResponse(BaseModel):
 async def root():
     """Root endpoint - API info"""
     return {
-        "message": "Poker AI API",
-        "version": "1.0.0",
+        "message": "Poker AI API - Professional Edition",
+        "version": "2.0.0",
         "docs": "/docs",
         "health": "/health"
     }
@@ -103,7 +103,7 @@ async def health_check():
     return {
         "status": "healthy" if ai_player else "degraded",
         "ai_loaded": ai_player is not None,
-        "version": "1.0.0"
+        "version": "2.0.0"
     }
 
 
