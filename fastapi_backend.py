@@ -141,8 +141,14 @@ async def get_strategy(hand: PokerHand):
         # Get strategy from AI
         strategy = ai_player.get_strategy(stage, hand.hole_cards, hand.board)
         action = ai_player.get_action(stage, hand.hole_cards, hand.board)
-        bucket, _ = ai_player.get_bucket_info(stage, hand.hole_cards, hand.board)
-        
+
+        # Get bucket (preflop or postflop)
+        if stage == "preflop":
+            bucket = ai_player.get_preflop_bucket(hand.hole_cards)
+        else:
+            equity = ai_player.calculate_equity(hand.hole_cards, hand.board)
+            bucket = ai_player.compute_postflop_bucket(equity)
+
         return {
             "strategy": strategy,
             "recommended_action": action,

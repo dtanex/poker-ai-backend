@@ -1,0 +1,83 @@
+{
+  "sample_strategies": {
+    "PREMIUM_PAIR|play80|setFalse|block5|sc0|EP|preflop|headsup|stack25|": {
+      "fold": 2e-06,
+      "call": 6e-06,
+      "raise": 0.999992,
+      "notes": []
+    },
+    "PREMIUM_PAIR|play80|setFalse|block5|sc0|EP|preflop|multiway|stack25|": {
+      "fold": 2e-06,
+      "call": 6e-06,
+      "raise": 0.999992,
+      "notes": []
+    },
+    "PREMIUM_PAIR|play80|setFalse|block5|sc0|EP|preflop|headsup|stack25|open": {
+      "fold": 6.000000000000001e-06,
+      "call": 1.7999999999999997e-05,
+      "raise": 0.9999760000000001,
+      "notes": []
+    },
+    "PREMIUM_PAIR|play80|setFalse|block5|sc0|EP|preflop|multiway|stack25|open": {
+      "fold": 8e-06,
+      "call": 2.4e-05,
+      "raise": 0.9999680000000001,
+      "notes": []
+    },
+    "PREMIUM_PAIR|play80|setFalse|block5|sc0|EP|preflop|headsup|stack25|open_3bet": {
+      "fold": 8e-06,
+      "call": 2.4e-05,
+      "raise": 0.9999680000000001,
+      "notes": [
+        "4betting for value or as bluff"
+      ]
+    },
+    "PREMIUM_PAIR|play80|setFalse|block5|sc0|EP|preflop|multiway|stack25|open_3bet": {
+      "fold": 4e-06,
+      "call": 1.2e-05,
+      "raise": 0.999984,
+      "notes": [
+        "4betting for value or as bluff"
+      ]
+    },
+    "PREMIUM_PAIR|play80|setFalse|block5|sc0|EP|preflop|headsup|stack25|open_3bet_4bet": {
+      "fold": 6.000000000000001e-06,
+      "call": 1.7999999999999997e-05,
+      "raise": 0.9999760000000001,
+      "notes": [
+        "4betting for value or as bluff"
+      ]
+    },
+    "PREMIUM_PAIR|play80|setFalse|block5|sc0|EP|preflop|multiway|stack25|open_3bet_4bet": {
+      "fold": 2e-06,
+      "call": 6e-06,
+      "raise": 0.999992,
+      "notes": [
+        "4betting for value or as bluff"
+      ]
+    },
+    "PREMIUM_PAIR|play80|setFalse|block5|sc0|EP|preflop|headsup|stack50|": {
+      "fold": 1.0281306557181055e-05,
+      "call": 8.366630732660088e-06,
+      "raise": 0.9999813520627102,
+      "notes": []
+    },
+    "PREMIUM_PAIR|play80|setFalse|block5|sc0|EP|preflop|multiway|stack50|": {
+      "fold": 9.407029933172614e-06,
+      "call": 6e-06,
+      "raise": 0.9999845929700669,
+      "notes": []
+    }
+  },
+  "metadata": {
+    "iterations": 49999,
+    "taxonomy_version": "2.0",
+    "features": [
+      "hand_category_aware",
+      "set_mining_optimization",
+      "suited_connector_handling",
+      "blocker_value_integration",
+      "position_specific_training"
+    ]
+  }
+}
