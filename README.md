@@ -170,3 +170,4 @@ Unlike most "poker AI" apps that are just ChatGPT wrappers:
 The AI is now ready to go! Run the tests, and if everything passes, you can deploy this backend and connect it to your Next.js frontend.
 
 Good luck crushing the tables! 🃏♠️♥️♣️♦️
+# v3.0 Enhanced CFR
