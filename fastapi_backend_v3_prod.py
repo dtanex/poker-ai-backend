@@ -148,6 +148,23 @@ def get_strategy(request: StrategyRequest):
         # Get decision
         decision = system.make_decision(game_state)
 
+        # HOTFIX: Override broken ranges for common spots
+        # TODO: Mark needs to retrain the model properly
+        hand_str = ''.join(sorted(request.hole_cards))
+        is_pocket_pair = len(set([c[0] for c in request.hole_cards])) == 1
+        pair_rank = request.hole_cards[0][0] if is_pocket_pair else None
+
+        # Small/medium pairs from BB facing single raise = mostly call
+        if (is_pocket_pair and pair_rank in ['2','3','4','5','6','7','8','9'] and
+            request.position == 'BB' and
+            'FACING_RAISE' in request.action_facing and
+            request.stack_depth >= 40):  # Deep enough for set mining
+
+            # Override to 70% call, 20% fold, 10% 3bet
+            decision['probabilities'] = {'call': 0.70, 'fold': 0.20, 'raise': 0.10}
+            decision['action'] = 'call'
+            decision['explanation'] = f"Set mining with {pair_rank}{pair_rank} from BB | Good pot odds (getting ~3:1) | Deep stacks ({request.stack_depth}BB) for implied odds"
+
         # Format response
         strategy = {
             'fold': decision['probabilities']['fold'],
