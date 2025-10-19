@@ -165,6 +165,35 @@ def get_strategy(request: StrategyRequest):
             decision['action'] = 'call'
             decision['explanation'] = f"Set mining with {pair_rank}{pair_rank} from BB | Good pot odds (getting ~3:1) | Deep stacks ({request.stack_depth}BB) for implied odds"
 
+        # BTN facing single raise - defend wider (we have position)
+        if (request.position == 'BTN' and 'FACING_RAISE' in request.action_facing):
+            cards = [c[0] for c in request.hole_cards]
+
+            # Premium pairs (TT+) = mostly 3bet
+            if is_pocket_pair and pair_rank in ['T', 'J', 'Q', 'K', 'A']:
+                decision['probabilities'] = {'call': 0.20, 'fold': 0.05, 'raise': 0.75}
+                decision['action'] = 'raise'
+                decision['explanation'] = f"Premium pair {pair_rank}{pair_rank} on BTN | 3bet for value with position | Mix in some calls to trap"
+
+            # Medium pairs (66-99) = mostly call
+            elif is_pocket_pair and pair_rank in ['6','7','8','9']:
+                decision['probabilities'] = {'call': 0.70, 'fold': 0.10, 'raise': 0.20}
+                decision['action'] = 'call'
+                decision['explanation'] = f"Set mining with {pair_rank}{pair_rank} on BTN | Position advantage for implied odds | Sometimes 3bet as bluff"
+
+            # AK/AQ = mostly 3bet
+            elif ('A' in cards and 'K' in cards) or ('A' in cards and 'Q' in cards):
+                decision['probabilities'] = {'call': 0.25, 'fold': 0.05, 'raise': 0.70}
+                decision['action'] = 'raise'
+                decision['explanation'] = f"Premium broadway on BTN | 3bet for value | High card strength + position = profitable squeeze"
+
+            # Suited connectors (98s, 87s, 76s, etc) = mostly call
+            elif (len(set([c[1] for c in request.hole_cards])) == 1 and  # Suited
+                  abs(ord(cards[0]) - ord(cards[1])) <= 2):  # Connected or 1-gapper
+                decision['probabilities'] = {'call': 0.60, 'fold': 0.25, 'raise': 0.15}
+                decision['action'] = 'call'
+                decision['explanation'] = f"Suited connector on BTN | Good playability with position | Implied odds to make straights/flushes"
+
         # Format response
         strategy = {
             'fold': decision['probabilities']['fold'],
