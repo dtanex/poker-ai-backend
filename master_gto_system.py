@@ -157,7 +157,7 @@ class MasterGTOSystem:
         
         # Get hand properties
         hand_props = self.cfr_trainer.get_hand_properties(hole_cards)
-        
+
         # Create game state object
         state = GameState(
             position=position,
@@ -167,11 +167,16 @@ class MasterGTOSystem:
             bet_size=game_state.get('bet_size', 0),
             num_players=game_state.get('num_players', 2)
         )
-        
-        # Get base GTO strategy
-        state_key = state.get_state_key()
-        if state_key in self.cfr_trainer.strategy_sum:
-            strategy_sum = self.cfr_trainer.strategy_sum[state_key]
+
+        # FIXED: Build key in the format our loaded strategies use: "72o|MP|UNOPENED|100"
+        # Convert hole_cards to hand notation
+        cards_str = self._cards_to_hand_notation(hole_cards)
+        stack_depth = game_state.get('stack_depth', 100)
+        strategy_key = f"{cards_str}|{game_state['position']}|{action_facing.name}|{stack_depth}"
+
+        # Get base GTO strategy - try both key formats
+        if strategy_key in self.cfr_trainer.strategy_sum:
+            strategy_sum = self.cfr_trainer.strategy_sum[strategy_key]
             if strategy_sum.sum() > 0:
                 base_strategy = strategy_sum / strategy_sum.sum()
             else:
@@ -527,15 +532,18 @@ class MasterGTOSystem:
         try:
             with open(filename, 'rb') as f:
                 save_data = pickle.load(f)
-            
-            # Restore strategies
+
+            # FIXED: Properly load strategies from proper_cfr_1M.pkl format
             if 'strategies' in save_data:
-                strategies = save_data['strategies']
-                if 'strategies' in strategies:
-                    self.cfr_trainer.strategy_sum = defaultdict(
-                        lambda: np.zeros(3),
-                        {k: np.array(v) for k, v in strategies['strategies'].items()}
-                    )
+                loaded_strategies = save_data['strategies']
+
+                # Convert loaded strategies to cfr_trainer format
+                for key, strategy in loaded_strategies.items():
+                    # Key format: "72o|MP|UNOPENED|100"
+                    # Convert to state key format for cfr_trainer
+                    self.cfr_trainer.strategy_sum[key] = np.array(strategy)
+
+                logger.info(f"✅ Loaded {len(loaded_strategies)} strategies into cfr_trainer")
             
             # Restore opponent database
             if 'opponent_database' in save_data:
@@ -552,6 +560,34 @@ class MasterGTOSystem:
             logger.error(f"Could not load strategies: {e}")
             return False
     
+    def _cards_to_hand_notation(self, hole_cards: List[str]) -> str:
+        """Convert hole cards like ['7h', '2d'] to hand notation like '72o' or 'AA'"""
+        if len(hole_cards) != 2:
+            return "XX"
+
+        # Parse cards
+        rank1 = hole_cards[0][0]
+        suit1 = hole_cards[0][1]
+        rank2 = hole_cards[1][0]
+        suit2 = hole_cards[1][1]
+
+        # Convert 10 to T
+        rank1 = 'T' if rank1 == '1' else rank1
+        rank2 = 'T' if rank2 == '1' else rank2
+
+        # Order ranks
+        rank_order = "AKQJT98765432"
+        if rank_order.index(rank1) > rank_order.index(rank2):
+            rank1, rank2, suit1, suit2 = rank2, rank1, suit2, suit1
+
+        # Build notation
+        if rank1 == rank2:
+            return f"{rank1}{rank2}"  # Pair
+        elif suit1 == suit2:
+            return f"{rank1}{rank2}s"  # Suited
+        else:
+            return f"{rank1}{rank2}o"  # Offsuit
+
     def _generate_training_report(self, iterations: int, elapsed: float):
         """Generate comprehensive training report"""
         print("\n" + "="*60)
