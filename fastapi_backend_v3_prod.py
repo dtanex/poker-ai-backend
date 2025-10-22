@@ -238,10 +238,11 @@ def health_check():
 
     return {
         "status": "healthy",
-        "version": "3.0.0",
+        "version": "3.0.1",
         "strategies_loaded": strategies_loaded,
         "num_trained_states": len(system.cfr_trainer.strategy_sum) if strategies_loaded else 0,
-        "opponents_tracked": len(system.opponent_modeler.opponents)
+        "opponents_tracked": len(system.opponent_modeler.opponents),
+        "deployment": "render-auto-deploy-test"
     }
 
 
