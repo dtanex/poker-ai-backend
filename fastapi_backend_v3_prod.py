@@ -304,46 +304,76 @@ def get_ranges(request: RangeRequest):
                 elif request.game_type == "8max":
                     position_adjustment = 0.92
 
-                try:
-                    # Get strategy from system
-                    game_state = {
-                        'hole_cards': hole_cards,
-                        'board': [],
-                        'position': request.hero_position,
-                        'action_facing': action_facing,
-                        'stack_depth': effective_stack,
-                        'pot_size': 1.5 if action_facing == "UNOPENED" else 6.5,
-                        'bet_size': 0.0 if action_facing == "UNOPENED" else 3.0,
-                        'stage': 'preflop',
-                        'villain_id': None
-                    }
+                # Use simplified GTO ranges (trained system may not be accurate for all scenarios)
+                # Calculate hand strength for GTO baseline
+                rank_values = {'A': 12, 'K': 11, 'Q': 10, 'J': 9, 'T': 8, '9': 7, '8': 6, '7': 5, '6': 4, '5': 3, '4': 2, '3': 1, '2': 0}
+                is_pair = (i == j)
+                is_suited = (i < j)
+                high_rank = max(rank_values[rank1], rank_values[rank2])
+                low_rank = min(rank_values[rank1], rank_values[rank2])
 
-                    decision = system.make_decision(game_state)
-                    probs = decision['probabilities']
+                # Position-based tightness
+                pos_tightness = {
+                    'UTG': 0.88, 'UTG1': 0.85, 'UTG2': 0.82, 'EP': 0.85, 'EP2': 0.80,
+                    'MP': 0.70, 'MP2': 0.65, 'CO': 0.50, 'BTN': 0.30, 'SB': 0.60, 'BB': 0.75
+                }.get(request.hero_position, 0.70)
 
-                    # Apply game type adjustment (tighten ranges for full ring)
-                    if position_adjustment < 1.0:
-                        # Shift some calls/raises to folds
-                        fold_increase = (1.0 - position_adjustment) * (probs['call'] + probs['raise']) * 0.5
-                        probs['fold'] = min(1.0, probs['fold'] + fold_increase)
-                        probs['call'] = max(0.0, probs['call'] * position_adjustment)
-                        probs['raise'] = max(0.0, probs['raise'] * position_adjustment)
+                # Apply game type adjustment
+                pos_tightness *= position_adjustment
 
-                        # Normalize
-                        total = sum(probs.values())
-                        if total > 0:
-                            probs = {k: v/total for k, v in probs.items()}
+                # Hand strength score (0-100)
+                if is_pair:
+                    strength = 80 + high_rank * 1.5
+                elif is_suited:
+                    strength = 55 + high_rank * 2.5 + low_rank * 1.5
+                    if high_rank - low_rank <= 1:  # Connector
+                        strength += 8
+                    elif high_rank - low_rank <= 2:  # One-gapper
+                        strength += 4
+                else:  # Offsuit
+                    strength = 40 + high_rank * 2.2 + low_rank * 1.2
+                    if high_rank - low_rank <= 1:  # Connector
+                        strength += 5
 
-                    ranges[hand] = probs
+                # Stack depth adjustments
+                if effective_stack < 20:  # Short stack
+                    if is_pair or (high_rank >= 11 and low_rank >= 9):  # Pairs and broadway
+                        strength *= 1.1
+                    else:
+                        strength *= 0.9
+                elif effective_stack > 200:  # Deep stack
+                    if is_suited or is_pair:
+                        strength *= 1.05
 
-                except Exception as e:
-                    logger.warning(f"Error calculating {hand}: {e}")
-                    # Default to fold if error
-                    ranges[hand] = {'fold': 1.0, 'call': 0.0, 'raise': 0.0}
+                # Calculate thresholds
+                raise_threshold = 50 + pos_tightness * 35
+                call_threshold = raise_threshold - 15
 
-        # Calculate summary statistics
-        vpip = sum(1 for h, r in ranges.items() if (r['call'] + r['raise']) > 0.5) / 169 * 100
-        pfr = sum(1 for h, r in ranges.items() if r['raise'] > 0.5) / 169 * 100
+                # Generate frequencies
+                if strength >= raise_threshold:
+                    raise_freq = min(0.95, (strength - raise_threshold) / 15)
+                    call_freq = max(0.03, 1.0 - raise_freq - 0.02)
+                    fold_freq = 1.0 - raise_freq - call_freq
+                elif strength >= call_threshold:
+                    call_freq = 0.60 + (strength - call_threshold) / 40
+                    raise_freq = max(0.05, (strength - call_threshold) / 30)
+                    fold_freq = 1.0 - call_freq - raise_freq
+                else:
+                    fold_freq = min(0.98, 0.70 + (call_threshold - strength) / 50)
+                    call_freq = max(0.01, (1.0 - fold_freq) * 0.6)
+                    raise_freq = 1.0 - fold_freq - call_freq
+
+                # Normalize
+                total = fold_freq + call_freq + raise_freq
+                ranges[hand] = {
+                    'fold': fold_freq / total,
+                    'call': call_freq / total,
+                    'raise': raise_freq / total
+                }
+
+        # Calculate summary statistics (sum of frequencies, not count of hands)
+        vpip = sum(r['call'] + r['raise'] for r in ranges.values()) / 169 * 100
+        pfr = sum(r['raise'] for r in ranges.values()) / 169 * 100
 
         summary = {
             'vpip': round(vpip, 1),
