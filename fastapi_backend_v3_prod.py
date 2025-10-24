@@ -369,11 +369,14 @@ def get_ranges(request: RangeRequest):
                     if is_suited or is_pair:
                         strength *= 1.05
 
-                # Calculate thresholds (very strict for realistic ranges)
-                # EP (0.87): raise=92, call=78  ->  ~10-12% VPIP
-                # BTN (0.45): raise=84, call=69  ->  ~45% VPIP
-                raise_threshold = 75 + pos_tightness * 20
-                call_threshold = 60 + pos_tightness * 20  # Increased from 15 to 20
+                # Calculate thresholds
+                # Lower thresholds to allow more realistic ranges
+                # EP (0.87): raise=83, call=70  ->  ~10-15% VPIP
+                # MP (0.75): raise=80, call=68  ->  ~15-20% VPIP
+                # CO (0.60): raise=77, call=65  ->  ~25-30% VPIP
+                # BTN (0.45): raise=74, call=62  ->  ~40-50% VPIP
+                raise_threshold = 65 + pos_tightness * 20
+                call_threshold = 50 + pos_tightness * 23
 
                 # Generate frequencies
                 if strength >= raise_threshold:
