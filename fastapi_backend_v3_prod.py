@@ -328,34 +328,36 @@ def get_ranges(request: RangeRequest):
                     # Pairs: AA=100, KK=98, down to 22=76
                     strength = 76 + high_rank * 2
                 elif is_suited:
-                    # Suited hands - heavily weight high cards
-                    strength = 20 + high_rank * 4 + low_rank * 1.5
+                    # Suited hands - weight high cards but not too harshly
+                    strength = 35 + high_rank * 3.5 + low_rank * 2.0
 
-                    # Connectivity bonus (much smaller)
+                    # Connectivity bonus
                     if gap == 0:  # Connector
-                        strength += 3
+                        strength += 5
                     elif gap == 1:  # One-gapper
-                        strength += 1.5
+                        strength += 3
+                    elif gap == 2:  # Two-gapper
+                        strength += 1
 
-                    # Penalty for low cards
-                    if high_rank < 8:  # Below T
-                        strength *= 0.75
-                    if low_rank < 5:  # Below 7
-                        strength *= 0.85
+                    # Light penalty for very low cards only
+                    if high_rank < 6:  # Below 8
+                        strength *= 0.90
+                    if low_rank < 3:  # Below 5
+                        strength *= 0.92
 
                 else:  # Offsuit
-                    # Offsuit - need very high cards
-                    strength = 10 + high_rank * 3.5 + low_rank * 1.0
+                    # Offsuit - need high cards
+                    strength = 20 + high_rank * 3.2 + low_rank * 1.5
 
                     # Small connectivity bonus
                     if gap == 0:
-                        strength += 2
+                        strength += 4
 
-                    # Heavy penalty for low cards
-                    if high_rank < 9:  # Below J
-                        strength *= 0.70
-                    if low_rank < 7:  # Below 9
-                        strength *= 0.80
+                    # Penalty for low cards
+                    if high_rank < 8:  # Below T
+                        strength *= 0.85
+                    if low_rank < 6:  # Below 8
+                        strength *= 0.88
 
                 # Stack depth adjustments
                 if effective_stack < 20:  # Short stack
