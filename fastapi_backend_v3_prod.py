@@ -9,6 +9,7 @@ from typing import List, Optional, Dict, Any
 import logging
 import os
 import pickle
+import json
 from pathlib import Path
 
 # Import Opus's master GTO system
@@ -48,6 +49,18 @@ if STRATEGIES_PATH.exists():
 else:
     logger.warning("⚠️ No pre-trained strategies found!")
     logger.info("Run training script first or strategies will be calculated on-the-fly")
+
+# Load precomputed GTO ranges
+PRECOMPUTED_RANGES_PATH = Path(__file__).parent / "precomputed_ranges.json"
+precomputed_ranges = {}
+
+if PRECOMPUTED_RANGES_PATH.exists():
+    logger.info("✅ Loading precomputed GTO ranges...")
+    with open(PRECOMPUTED_RANGES_PATH, 'r') as f:
+        precomputed_ranges = json.load(f)
+    logger.info(f"✅ Loaded {len(precomputed_ranges)} scenario sets")
+else:
+    logger.warning("⚠️ No precomputed ranges found! Will use fallback calculation.")
 
 
 # Pydantic models
@@ -250,166 +263,81 @@ class RangeResponse(BaseModel):
 def get_ranges(request: RangeRequest):
     """
     Generate complete range chart for given game conditions.
-    Returns action frequencies for all 169 starting hands.
+    Returns action frequencies for all 169 starting hands using precomputed GTO ranges.
     """
     try:
-        # All 169 starting hands
-        ranks = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2']
-        ranges = {}
+        # Build scenario key (e.g., "6max_cash_100bb")
+        scenario_key = f"{request.game_type}_{request.format}_{request.stack_depth}bb"
 
-        # Adjust action facing based on villain position
+        # Map position to range key (e.g., "EP_RFI")
+        # Normalize position names
+        position_map = {
+            'UTG': 'EP', 'UTG1': 'EP', 'UTG2': 'EP',
+            'EP': 'EP', 'EP2': 'MP',
+            'MP': 'MP', 'MP2': 'MP',
+            'CO': 'CO',
+            'BTN': 'BTN',
+            'SB': 'SB',
+            'BB': 'BB'
+        }
+
+        normalized_pos = position_map.get(request.hero_position, request.hero_position)
+
+        # Determine action type
         if request.villain_position:
-            # Determine action type based on positions
-            villain_pos_order = {'EP': 0, 'MP': 1, 'CO': 2, 'BTN': 3, 'SB': 4, 'BB': 5}
-            hero_pos_order = {'EP': 0, 'MP': 1, 'CO': 2, 'BTN': 3, 'SB': 4, 'BB': 5}
+            # Normalize villain position
+            normalized_villain = position_map.get(request.villain_position, request.villain_position)
 
-            if request.villain_position in villain_pos_order and request.hero_position in hero_pos_order:
-                if villain_pos_order[request.villain_position] < hero_pos_order[request.hero_position]:
-                    action_facing = "FACING_RAISE"
-                else:
-                    action_facing = request.action_type
+            # If hero is BB, use BB_vs_VILLAIN format
+            if normalized_pos == 'BB':
+                range_key = f"BB_vs_{normalized_villain}"
+            # If there's a villain, we're facing action
+            elif request.action_type == "3BET":
+                range_key = f"{normalized_pos}_vs_3BET"
+            elif request.action_type == "4BET":
+                range_key = f"{normalized_pos}_vs_4BET"
             else:
-                action_facing = "FACING_RAISE"
+                # vs single raise - generic format (not yet implemented for non-BB)
+                range_key = f"{normalized_pos}_vs_{normalized_villain}"
         else:
-            action_facing = "UNOPENED"
+            # No villain = RFI (Raise First In)
+            range_key = f"{normalized_pos}_RFI"
 
-        # Generate frequency for each hand
-        for i, rank1 in enumerate(ranks):
-            for j, rank2 in enumerate(ranks):
-                if i == j:
-                    # Pocket pair
-                    hand = f"{rank1}{rank2}"
-                    hole_cards = [f"{rank1}s", f"{rank2}h"]
-                elif i < j:
-                    # Suited
-                    hand = f"{rank1}{rank2}s"
-                    hole_cards = [f"{rank1}s", f"{rank2}s"]
-                else:
-                    # Offsuit
-                    hand = f"{rank2}{rank1}o"
-                    hole_cards = [f"{rank2}s", f"{rank1}h"]
+        # Look up precomputed ranges
+        if scenario_key in precomputed_ranges and range_key in precomputed_ranges[scenario_key]:
+            logger.info(f"✅ Using precomputed ranges: {scenario_key} -> {range_key}")
+            range_data = precomputed_ranges[scenario_key][range_key]["ranges"]
 
-                # Adjust stack depth based on game format and player count
-                effective_stack = request.stack_depth
-
-                # MTT adjustments (tighter at lower stacks)
-                if request.format == "mtt" and request.stack_depth < 30:
-                    # Push/fold mode in tournaments
-                    effective_stack = request.stack_depth
-
-                # Game type adjustments (10max plays tighter than 6max)
-                position_adjustment = 1.0
-                if request.game_type == "10max":
-                    position_adjustment = 0.85  # Tighter ranges
-                elif request.game_type == "8max":
-                    position_adjustment = 0.92
-
-                # Use simplified GTO ranges (trained system may not be accurate for all scenarios)
-                # Calculate hand strength for GTO baseline
-                rank_values = {'A': 12, 'K': 11, 'Q': 10, 'J': 9, 'T': 8, '9': 7, '8': 6, '7': 5, '6': 4, '5': 3, '4': 2, '3': 1, '2': 0}
-                is_pair = (i == j)
-                is_suited = (i < j)
-                high_rank = max(rank_values[rank1], rank_values[rank2])
-                low_rank = min(rank_values[rank1], rank_values[rank2])
-
-                # Position-based tightness (higher = tighter)
-                pos_tightness = {
-                    'UTG': 0.90, 'UTG1': 0.87, 'UTG2': 0.84, 'EP': 0.87, 'EP2': 0.82,
-                    'MP': 0.75, 'MP2': 0.70, 'CO': 0.60, 'BTN': 0.45, 'SB': 0.70, 'BB': 0.80
-                }.get(request.hero_position, 0.75)
-
-                # Apply game type adjustment
-                pos_tightness *= position_adjustment
-
-                # Hand strength score (0-100) - much more conservative
-                gap = high_rank - low_rank
-
-                if is_pair:
-                    # Pairs: AA=100, KK=98, down to 22=76
-                    strength = 76 + high_rank * 2
-                elif is_suited:
-                    # Suited hands - weight high cards but not too harshly
-                    strength = 35 + high_rank * 3.5 + low_rank * 2.0
-
-                    # Connectivity bonus
-                    if gap == 0:  # Connector
-                        strength += 5
-                    elif gap == 1:  # One-gapper
-                        strength += 3
-                    elif gap == 2:  # Two-gapper
-                        strength += 1
-
-                    # Light penalty for very low cards only
-                    if high_rank < 6:  # Below 8
-                        strength *= 0.90
-                    if low_rank < 3:  # Below 5
-                        strength *= 0.92
-
-                else:  # Offsuit
-                    # Offsuit - need high cards
-                    strength = 20 + high_rank * 3.2 + low_rank * 1.5
-
-                    # Small connectivity bonus
-                    if gap == 0:
-                        strength += 4
-
-                    # Penalty for low cards
-                    if high_rank < 8:  # Below T
-                        strength *= 0.85
-                    if low_rank < 6:  # Below 8
-                        strength *= 0.88
-
-                # Stack depth adjustments
-                if effective_stack < 20:  # Short stack
-                    if is_pair or (high_rank >= 11 and low_rank >= 9):  # Pairs and broadway
-                        strength *= 1.1
-                    else:
-                        strength *= 0.9
-                elif effective_stack > 200:  # Deep stack
-                    if is_suited or is_pair:
-                        strength *= 1.05
-
-                # Calculate thresholds
-                # Lower thresholds to allow more realistic ranges
-                # EP (0.87): raise=83, call=70  ->  ~10-15% VPIP
-                # MP (0.75): raise=80, call=68  ->  ~15-20% VPIP
-                # CO (0.60): raise=77, call=65  ->  ~25-30% VPIP
-                # BTN (0.45): raise=74, call=62  ->  ~40-50% VPIP
-                raise_threshold = 65 + pos_tightness * 20
-                call_threshold = 50 + pos_tightness * 23
-
-                # Generate frequencies
-                if strength >= raise_threshold:
-                    # Strong hands: mostly raise
-                    raise_freq = 0.70 + min(0.25, (strength - raise_threshold) / 30)
-                    call_freq = 0.05
-                    fold_freq = 1.0 - raise_freq - call_freq
-                elif strength >= call_threshold:
-                    # Medium hands: mixed call/raise
-                    diff = (strength - call_threshold) / (raise_threshold - call_threshold)
-                    raise_freq = diff * 0.30
-                    call_freq = 0.40 + diff * 0.25
-                    fold_freq = 1.0 - call_freq - raise_freq
-                elif strength >= (call_threshold - 10):
-                    # Marginal hands: mostly call or fold
-                    call_freq = 0.25 + (strength - (call_threshold - 10)) / 40
-                    raise_freq = 0.05
-                    fold_freq = 1.0 - call_freq - raise_freq
-                else:
-                    # Weak hands: mostly fold
-                    fold_freq = 0.85 + min(0.13, (call_threshold - 10 - strength) / 40)
-                    call_freq = max(0.01, (1.0 - fold_freq) * 0.7)
-                    raise_freq = 1.0 - fold_freq - call_freq
-
-                # Normalize
-                total = fold_freq + call_freq + raise_freq
+            # Convert from array format [fold, call, raise] to dict format
+            ranges = {}
+            for hand, freqs in range_data.items():
                 ranges[hand] = {
-                    'fold': fold_freq / total,
-                    'call': call_freq / total,
-                    'raise': raise_freq / total
+                    'fold': freqs[0],
+                    'call': freqs[1],
+                    'raise': freqs[2]
                 }
+        else:
+            # Fallback: use default 100bb scenario if available
+            fallback_scenario = f"{request.game_type}_cash_100bb"
+            if fallback_scenario in precomputed_ranges and range_key in precomputed_ranges[fallback_scenario]:
+                logger.warning(f"⚠️ Scenario {scenario_key} not found, using fallback: {fallback_scenario}")
+                range_data = precomputed_ranges[fallback_scenario][range_key]["ranges"]
+                ranges = {}
+                for hand, freqs in range_data.items():
+                    ranges[hand] = {
+                        'fold': freqs[0],
+                        'call': freqs[1],
+                        'raise': freqs[2]
+                    }
+            else:
+                # No precomputed data available
+                logger.error(f"❌ No precomputed ranges for {scenario_key} -> {range_key}")
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"No precomputed ranges available for {scenario_key} -> {range_key}. Available: {list(precomputed_ranges.keys())}"
+                )
 
-        # Calculate summary statistics (sum of frequencies, not count of hands)
+        # Calculate summary statistics
         vpip = sum(r['call'] + r['raise'] for r in ranges.values()) / 169 * 100
         pfr = sum(r['raise'] for r in ranges.values()) / 169 * 100
 
@@ -421,7 +349,8 @@ def get_ranges(request: RangeRequest):
             'stack_depth': request.stack_depth,
             'hero_position': request.hero_position,
             'villain_position': request.villain_position,
-            'action_type': action_facing
+            'action_type': range_key,
+            'scenario': scenario_key
         }
 
         return RangeResponse(
@@ -429,9 +358,11 @@ def get_ranges(request: RangeRequest):
             summary=summary
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error in get_ranges: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Range calculation failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Range lookup failed: {str(e)}")
 
 
 @app.get("/health")
