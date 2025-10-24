@@ -5,7 +5,7 @@ Simplified version without training validation report
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 import logging
 import os
 import pickle
@@ -243,7 +243,7 @@ class RangeRequest(BaseModel):
 
 class RangeResponse(BaseModel):
     ranges: Dict[str, Dict[str, float]]  # hand -> {fold, call, raise} frequencies
-    summary: Dict[str, any]
+    summary: Dict[str, Any]
 
 
 @app.post("/ranges", response_model=RangeResponse)
