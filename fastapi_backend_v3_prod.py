@@ -321,19 +321,41 @@ def get_ranges(request: RangeRequest):
                 # Apply game type adjustment
                 pos_tightness *= position_adjustment
 
-                # Hand strength score (0-100)
+                # Hand strength score (0-100) - much more conservative
+                gap = high_rank - low_rank
+
                 if is_pair:
-                    strength = 80 + high_rank * 1.5
+                    # Pairs: AA=100, KK=98, down to 22=76
+                    strength = 76 + high_rank * 2
                 elif is_suited:
-                    strength = 55 + high_rank * 2.5 + low_rank * 1.5
-                    if high_rank - low_rank <= 1:  # Connector
-                        strength += 8
-                    elif high_rank - low_rank <= 2:  # One-gapper
-                        strength += 4
+                    # Suited hands - heavily weight high cards
+                    strength = 20 + high_rank * 4 + low_rank * 1.5
+
+                    # Connectivity bonus (much smaller)
+                    if gap == 0:  # Connector
+                        strength += 3
+                    elif gap == 1:  # One-gapper
+                        strength += 1.5
+
+                    # Penalty for low cards
+                    if high_rank < 8:  # Below T
+                        strength *= 0.75
+                    if low_rank < 5:  # Below 7
+                        strength *= 0.85
+
                 else:  # Offsuit
-                    strength = 40 + high_rank * 2.2 + low_rank * 1.2
-                    if high_rank - low_rank <= 1:  # Connector
-                        strength += 5
+                    # Offsuit - need very high cards
+                    strength = 10 + high_rank * 3.5 + low_rank * 1.0
+
+                    # Small connectivity bonus
+                    if gap == 0:
+                        strength += 2
+
+                    # Heavy penalty for low cards
+                    if high_rank < 9:  # Below J
+                        strength *= 0.70
+                    if low_rank < 7:  # Below 9
+                        strength *= 0.80
 
                 # Stack depth adjustments
                 if effective_stack < 20:  # Short stack
@@ -345,9 +367,11 @@ def get_ranges(request: RangeRequest):
                     if is_suited or is_pair:
                         strength *= 1.05
 
-                # Calculate thresholds (much tighter to get realistic ranges)
-                raise_threshold = 75 + pos_tightness * 20  # Higher threshold for raising
-                call_threshold = 60 + pos_tightness * 15   # Higher threshold for calling
+                # Calculate thresholds (very strict for realistic ranges)
+                # EP (0.87): raise=92, call=78  ->  ~10-12% VPIP
+                # BTN (0.45): raise=84, call=69  ->  ~45% VPIP
+                raise_threshold = 75 + pos_tightness * 20
+                call_threshold = 60 + pos_tightness * 20  # Increased from 15 to 20
 
                 # Generate frequencies
                 if strength >= raise_threshold:
