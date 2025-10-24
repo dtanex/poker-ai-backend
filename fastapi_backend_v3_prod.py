@@ -232,6 +232,140 @@ def get_strategy(request: StrategyRequest):
         raise HTTPException(status_code=500, detail=f"Strategy calculation failed: {str(e)}")
 
 
+class RangeRequest(BaseModel):
+    game_type: str  # "6max", "8max", "10max"
+    format: str  # "cash" or "mtt"
+    stack_depth: int  # BB depth
+    hero_position: str  # Position of hero
+    villain_position: Optional[str] = None  # Position of villain (None = unopened pot)
+    action_type: str = "UNOPENED"  # "UNOPENED", "RAISE", "3BET", "4BET"
+
+
+class RangeResponse(BaseModel):
+    ranges: Dict[str, Dict[str, float]]  # hand -> {fold, call, raise} frequencies
+    summary: Dict[str, any]
+
+
+@app.post("/ranges", response_model=RangeResponse)
+def get_ranges(request: RangeRequest):
+    """
+    Generate complete range chart for given game conditions.
+    Returns action frequencies for all 169 starting hands.
+    """
+    try:
+        # All 169 starting hands
+        ranks = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2']
+        ranges = {}
+
+        # Adjust action facing based on villain position
+        if request.villain_position:
+            # Determine action type based on positions
+            villain_pos_order = {'EP': 0, 'MP': 1, 'CO': 2, 'BTN': 3, 'SB': 4, 'BB': 5}
+            hero_pos_order = {'EP': 0, 'MP': 1, 'CO': 2, 'BTN': 3, 'SB': 4, 'BB': 5}
+
+            if request.villain_position in villain_pos_order and request.hero_position in hero_pos_order:
+                if villain_pos_order[request.villain_position] < hero_pos_order[request.hero_position]:
+                    action_facing = "FACING_RAISE"
+                else:
+                    action_facing = request.action_type
+            else:
+                action_facing = "FACING_RAISE"
+        else:
+            action_facing = "UNOPENED"
+
+        # Generate frequency for each hand
+        for i, rank1 in enumerate(ranks):
+            for j, rank2 in enumerate(ranks):
+                if i == j:
+                    # Pocket pair
+                    hand = f"{rank1}{rank2}"
+                    hole_cards = [f"{rank1}s", f"{rank2}h"]
+                elif i < j:
+                    # Suited
+                    hand = f"{rank1}{rank2}s"
+                    hole_cards = [f"{rank1}s", f"{rank2}s"]
+                else:
+                    # Offsuit
+                    hand = f"{rank2}{rank1}o"
+                    hole_cards = [f"{rank2}s", f"{rank1}h"]
+
+                # Adjust stack depth based on game format and player count
+                effective_stack = request.stack_depth
+
+                # MTT adjustments (tighter at lower stacks)
+                if request.format == "mtt" and request.stack_depth < 30:
+                    # Push/fold mode in tournaments
+                    effective_stack = request.stack_depth
+
+                # Game type adjustments (10max plays tighter than 6max)
+                position_adjustment = 1.0
+                if request.game_type == "10max":
+                    position_adjustment = 0.85  # Tighter ranges
+                elif request.game_type == "8max":
+                    position_adjustment = 0.92
+
+                try:
+                    # Get strategy from system
+                    game_state = {
+                        'hole_cards': hole_cards,
+                        'board': [],
+                        'position': request.hero_position,
+                        'action_facing': action_facing,
+                        'stack_depth': effective_stack,
+                        'pot_size': 1.5 if action_facing == "UNOPENED" else 6.5,
+                        'bet_size': 0.0 if action_facing == "UNOPENED" else 3.0,
+                        'stage': 'preflop',
+                        'villain_id': None
+                    }
+
+                    decision = system.make_decision(game_state)
+                    probs = decision['probabilities']
+
+                    # Apply game type adjustment (tighten ranges for full ring)
+                    if position_adjustment < 1.0:
+                        # Shift some calls/raises to folds
+                        fold_increase = (1.0 - position_adjustment) * (probs['call'] + probs['raise']) * 0.5
+                        probs['fold'] = min(1.0, probs['fold'] + fold_increase)
+                        probs['call'] = max(0.0, probs['call'] * position_adjustment)
+                        probs['raise'] = max(0.0, probs['raise'] * position_adjustment)
+
+                        # Normalize
+                        total = sum(probs.values())
+                        if total > 0:
+                            probs = {k: v/total for k, v in probs.items()}
+
+                    ranges[hand] = probs
+
+                except Exception as e:
+                    logger.warning(f"Error calculating {hand}: {e}")
+                    # Default to fold if error
+                    ranges[hand] = {'fold': 1.0, 'call': 0.0, 'raise': 0.0}
+
+        # Calculate summary statistics
+        vpip = sum(1 for h, r in ranges.items() if (r['call'] + r['raise']) > 0.5) / 169 * 100
+        pfr = sum(1 for h, r in ranges.items() if r['raise'] > 0.5) / 169 * 100
+
+        summary = {
+            'vpip': round(vpip, 1),
+            'pfr': round(pfr, 1),
+            'game_type': request.game_type,
+            'format': request.format,
+            'stack_depth': request.stack_depth,
+            'hero_position': request.hero_position,
+            'villain_position': request.villain_position,
+            'action_type': action_facing
+        }
+
+        return RangeResponse(
+            ranges=ranges,
+            summary=summary
+        )
+
+    except Exception as e:
+        logger.error(f"Error in get_ranges: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Range calculation failed: {str(e)}")
+
+
 @app.get("/health")
 def health_check():
     strategies_loaded = hasattr(system.cfr_trainer, 'strategy_sum') and len(system.cfr_trainer.strategy_sum) > 0
