@@ -312,11 +312,11 @@ def get_ranges(request: RangeRequest):
                 high_rank = max(rank_values[rank1], rank_values[rank2])
                 low_rank = min(rank_values[rank1], rank_values[rank2])
 
-                # Position-based tightness
+                # Position-based tightness (higher = tighter)
                 pos_tightness = {
-                    'UTG': 0.88, 'UTG1': 0.85, 'UTG2': 0.82, 'EP': 0.85, 'EP2': 0.80,
-                    'MP': 0.70, 'MP2': 0.65, 'CO': 0.50, 'BTN': 0.30, 'SB': 0.60, 'BB': 0.75
-                }.get(request.hero_position, 0.70)
+                    'UTG': 0.90, 'UTG1': 0.87, 'UTG2': 0.84, 'EP': 0.87, 'EP2': 0.82,
+                    'MP': 0.75, 'MP2': 0.70, 'CO': 0.60, 'BTN': 0.45, 'SB': 0.70, 'BB': 0.80
+                }.get(request.hero_position, 0.75)
 
                 # Apply game type adjustment
                 pos_tightness *= position_adjustment
