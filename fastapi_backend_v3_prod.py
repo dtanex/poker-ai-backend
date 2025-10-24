@@ -345,22 +345,31 @@ def get_ranges(request: RangeRequest):
                     if is_suited or is_pair:
                         strength *= 1.05
 
-                # Calculate thresholds
-                raise_threshold = 50 + pos_tightness * 35
-                call_threshold = raise_threshold - 15
+                # Calculate thresholds (much tighter to get realistic ranges)
+                raise_threshold = 75 + pos_tightness * 20  # Higher threshold for raising
+                call_threshold = 60 + pos_tightness * 15   # Higher threshold for calling
 
                 # Generate frequencies
                 if strength >= raise_threshold:
-                    raise_freq = min(0.95, (strength - raise_threshold) / 15)
-                    call_freq = max(0.03, 1.0 - raise_freq - 0.02)
+                    # Strong hands: mostly raise
+                    raise_freq = 0.70 + min(0.25, (strength - raise_threshold) / 30)
+                    call_freq = 0.05
                     fold_freq = 1.0 - raise_freq - call_freq
                 elif strength >= call_threshold:
-                    call_freq = 0.60 + (strength - call_threshold) / 40
-                    raise_freq = max(0.05, (strength - call_threshold) / 30)
+                    # Medium hands: mixed call/raise
+                    diff = (strength - call_threshold) / (raise_threshold - call_threshold)
+                    raise_freq = diff * 0.30
+                    call_freq = 0.40 + diff * 0.25
+                    fold_freq = 1.0 - call_freq - raise_freq
+                elif strength >= (call_threshold - 10):
+                    # Marginal hands: mostly call or fold
+                    call_freq = 0.25 + (strength - (call_threshold - 10)) / 40
+                    raise_freq = 0.05
                     fold_freq = 1.0 - call_freq - raise_freq
                 else:
-                    fold_freq = min(0.98, 0.70 + (call_threshold - strength) / 50)
-                    call_freq = max(0.01, (1.0 - fold_freq) * 0.6)
+                    # Weak hands: mostly fold
+                    fold_freq = 0.85 + min(0.13, (call_threshold - 10 - strength) / 40)
+                    call_freq = max(0.01, (1.0 - fold_freq) * 0.7)
                     raise_freq = 1.0 - fold_freq - call_freq
 
                 # Normalize
